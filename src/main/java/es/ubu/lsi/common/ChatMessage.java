@@ -111,4 +111,5 @@ public class ChatMessage implements Serializable {
 	private void setId(int id) {
 		this.id = id;
 	}
+
 }
