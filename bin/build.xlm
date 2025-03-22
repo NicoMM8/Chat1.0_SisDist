@@ -1,0 +1,5 @@
+<target name="javadoc" description="Genera Javadoc">
+  <javadoc sourcepath="src/main/java" destdir="doc">
+    <fileset dir="src/main/java"/>
+  </javadoc>
+</target>
