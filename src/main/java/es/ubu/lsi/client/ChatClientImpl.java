@@ -1,12 +1,12 @@
 package es.ubu.lsi.client;
 
-import es.ubu.lsi.common.ChatMessage;
-import es.ubu.lsi.common.ChatMessage.MessageType;
-
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.Scanner;
+
+import es.ubu.lsi.common.ChatMessage;
+import es.ubu.lsi.common.ChatMessage.MessageType;
 
 /**
  * Implementación del cliente de chat.
