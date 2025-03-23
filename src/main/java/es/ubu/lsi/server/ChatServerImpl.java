@@ -10,6 +10,8 @@ import java.net.Socket;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Map;
+import java.util.Scanner;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -19,60 +21,77 @@ import java.util.concurrent.ConcurrentHashMap;
  * 
  * @author Alejandro Navas García
  * @author Nicolás Muñoz Miguel
+ * 
+ * @version 1.0
  */
-public class ChatServerImpl {
-    private static final int DEFAULT_PORT = 1500; // Puerto predeterminado
+public class ChatServerImpl implements ChatServer {
+	/** Puerto por defecto para el servidor. */
+    private static int DEFAULT_PORT = 1500;
+    /** Mapa concurrente de clientes conectados identificados por su ID. */
+    private final ConcurrentHashMap<Integer, ServerThreadForClient> clients = new ConcurrentHashMap<>();
+    /** Formato de fecha para los logs del servidor. */
+    private final SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
+    /** Indica si el servidor está en ejecución. */
+    private boolean alive = true;
+    /** Contador para asignar IDs únicos a los clientes. */
+    private int clientId = 0;
+    /** Mapa de clientes identificados por sus nombres de usuario (nickname). */
+    private final Map<String, ServerThreadForClient> clientsByName = new ConcurrentHashMap<>();
     
-    private int port; // Puerto del servidor
-    private final SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss"); // Formato de hora
-    private final Map<Integer, ServerThreadForClient> clients = new ConcurrentHashMap<>(); // Clientes conectados
-    private boolean alive; // Estado del servidor
-    private int clientId; // Contador de IDs para los clientes
-
+    
     /**
-     * Constructor por defecto (usa el puerto 1500).
-     */
-    public ChatServerImpl() {
-        this(DEFAULT_PORT);
-    }
-
-    /**
-     * Constructor que permite definir un puerto.
+     * Constructor que permite definir un puerto para el servidor.
+     * Si el puerto no se especifica o no es válido, se usará el puerto predeterminado 1500.
      * 
-     * @param port Puerto del servidor.
+     * @param port El puerto en el que el servidor escuchará conexiones.
      */
     public ChatServerImpl(int port) {
-        this.port = port;
-        this.alive = true;
-        this.clientId = 0; // Inicializar clientId
+        // Valida el puerto proporcionado
+        if (port <= 0 || port > 65535) {
+            System.out.println("Puerto inválido. Usando el puerto predeterminado: 1500.");
+            port = 1500; // Configuración del puerto predeterminado
+        }
+        DEFAULT_PORT = port; // Asignación del puerto al atributo
+        System.out.println("Servidor configurado para escuchar en el puerto " + DEFAULT_PORT);
     }
 
     /**
-     * Método principal que arranca el servidor.
+     * Constructor por defecto que usa el puerto 1500.
+     */
+    private ChatServerImpl() {
+        this(1500);
+    }
+
+    
+    /**
+     * Método principal que arranca el servidor de chat.
+     * Configura el servidor y permite interacciones desde la consola.
+     * 
+     * @param args No requiere argumentos.
      */
     public static void main(String[] args) {
         ChatServerImpl server = new ChatServerImpl();
         server.startup();
+        server.listenForUserInput();
     }
 
     /**
-     * Inicia el servidor y espera conexiones de clientes.
+     * Método que inicia el servidor.
+     * Crea un socket del servidor y acepta conexiones de clientes.
      */
+    @Override
     public void startup() {
-        System.out.println("Iniciando servidor en el puerto " + port + "...");
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("Servidor iniciado correctamente. Esperando conexiones...");
+        try (ServerSocket serverSocket = new ServerSocket(DEFAULT_PORT)) {
+            System.out.println("Servidor iniciado en puerto " + DEFAULT_PORT);
+
             while (alive) {
-                Socket clientSocket = serverSocket.accept(); // Aceptar conexión
+                Socket socket = serverSocket.accept();
+                int id = ++clientId;
+                System.out.println(sdf.format(new Date()) + " Cliente conectado con ID " + id);
 
-                // Incrementar clientId y asignarlo al cliente
-                int newClientId = ++clientId; 
-                System.out.println(sdf.format(new Date()) + " Cliente conectado con ID " + newClientId);
-
-                // Crear y arrancar el hilo del cliente
-                ServerThreadForClient clientThread = new ServerThreadForClient(clientSocket, newClientId);
-                clients.put(newClientId, clientThread);
-                clientThread.start();
+                ServerThreadForClient thread = new ServerThreadForClient(socket, id);
+                clients.put(id, thread);
+                thread.start();
             }
         } catch (IOException e) {
             System.err.println("Error en el servidor: " + e.getMessage());
@@ -82,121 +101,227 @@ public class ChatServerImpl {
     }
 
     /**
-     * Elimina un cliente de la lista de clientes activos.
+     * Método para retransmitir mensajes a todos los clientes conectados.
      * 
-     * @param id ID del cliente a eliminar.
+     * @param message Mensaje a retransmitir.
      */
+    @Override
+    public void broadcast(ChatMessage message) {
+        clients.values().forEach(client -> client.sendMessage(message));
+    }
+
+    /**
+     * Método que elimina un cliente del servidor.
+     * 
+     * @param id Identificador único del cliente a eliminar.
+     */
+    @Override
     public void remove(int id) {
         ServerThreadForClient client = clients.remove(id);
         if (client != null) {
-            System.out.println(sdf.format(new Date()) + " Cliente con ID " + id + " eliminado.");
+            clientsByName.remove(client.username);
             client.closeConnection();
-        } else {
-            System.out.println(sdf.format(new Date()) + " Cliente con ID " + id + " no encontrado.");
         }
     }
 
     /**
-     * Apaga el servidor y cierra todas las conexiones.
+     * Método que apaga el servidor.
+     * Cierra todas las conexiones activas de los clientes.
      */
+    @Override
     public void shutdown() {
-        System.out.println("Apagando el servidor...");
         alive = false;
-        for (ServerThreadForClient client : clients.values()) {
-            client.closeConnection();
-        }
+        clients.values().forEach(ServerThreadForClient::closeConnection);
         clients.clear();
-        System.out.println("Servidor apagado correctamente.");
+    }
+    
+    /**
+     * Escucha comandos administrativos desde la consola del servidor.
+     * Comandos admitidos:
+     * - "logout": Apaga el servidor.
+     * - "ban ": Bloquea a un cliente.
+     * - "unban ": Desbloquea a un cliente.
+     */
+    private void listenForUserInput() {
+        Scanner scanner = new Scanner(System.in);
+        while (alive) {
+            System.out.print("> ");
+            String input = scanner.nextLine();
+
+            if ("logout".equalsIgnoreCase(input)) {
+                shutdown();
+                break;
+            } else if (input.startsWith("ban ") || input.startsWith("unban ")) {
+                broadcast(new ChatMessage(0, ChatMessage.MessageType.MESSAGE, input));
+            } else {
+                broadcast(new ChatMessage(0, ChatMessage.MessageType.MESSAGE, input));
+            }
+        }
+        scanner.close();
     }
 
 
     /**
-     * Clase interna que gestiona la comunicación con un cliente.
+     * Clase interna que representa un hilo de cliente conectado al servidor.
+     * Gestiona la comunicación con un cliente específico.
      */
     private class ServerThreadForClient extends Thread {
-        private final Socket socket; // Conexión del cliente
-        private final int id; // ID único del cliente
-        private String username; // Nombre del usuario
-        private ObjectInputStream input; // Flujo de entrada
-        private ObjectOutputStream output; // Flujo de salida
+    	/** Socket del cliente. */
+    	private final Socket socket;
+    	/** ID único del cliente. */
+    	private final int id;
+    	/** Nombre de usuario (nickname) del cliente. */
+    	private String username;
+    	/** Flujo de salida hacia el cliente. */
+    	private ObjectOutputStream outputStream;
+    	/** Flujo de entrada desde el cliente. */
+    	private Set<Integer> blockedUsers = ConcurrentHashMap.newKeySet();
+    	/** Lista de IDs de clientes bloqueados por este cliente. */
+    	private ObjectInputStream inputStream;
 
         /**
-         * Constructor del hilo de cliente.
+         * Constructor que configura la conexión con el cliente.
          * 
          * @param socket Socket del cliente.
          * @param id ID único del cliente.
+         * @throws IOException Si ocurre un error en los flujos o el socket.
          */
-        public ServerThreadForClient(Socket socket, int id) {
-            this.socket = socket;
-            this.id = id;
-        }
+    	public ServerThreadForClient(Socket socket, int id) throws IOException {
+    	    this.socket = socket;
+    	    this.id = id;
 
+    	    // Inicializa flujos en orden
+    	    this.outputStream = new ObjectOutputStream(socket.getOutputStream());
+    	    this.inputStream = new ObjectInputStream(socket.getInputStream());
+
+    	    // Lee el mensaje inicial (nickname)
+    	    try {
+    	        ChatMessage initialMessage = (ChatMessage) inputStream.readObject();
+    	        this.username = initialMessage.getMessage();
+
+    	        // Valida si el nickname ya está en uso
+    	        if (clientsByName.containsKey(username)) {
+    	            throw new IOException("El apodo ya está en uso: " + username);
+    	        }
+
+    	        clientsByName.put(username, this); // Registrar al cliente por nombre
+    	    } catch (ClassNotFoundException e) {
+    	        System.err.println("Clase no encontrada al leer mensaje del cliente: " + e.getMessage());
+    	    }
+    	}
+
+        /**
+         * Método que ejecuta el hilo del cliente.
+         * Procesa mensajes entrantes y comandos como "ban" y "unban".
+         */
         @Override
         public void run() {
             try {
-                // Configuración de los flujos (salida primero para evitar problemas)
-                output = new ObjectOutputStream(socket.getOutputStream());
-                input = new ObjectInputStream(socket.getInputStream());
-
-                // Leer el nombre de usuario al conectarse
-                ChatMessage initialMessage = (ChatMessage) input.readObject();
-                this.username = initialMessage.getMessage();
-                System.out.println(sdf.format(new Date()) + " Cliente ID " + id + " registrado como " + username);
-
-                // Bucle para recibir mensajes
+                // Bucle para procesar mensajes de los clientes
                 while (true) {
-                    ChatMessage message = (ChatMessage) input.readObject();
+                    ChatMessage message = (ChatMessage) inputStream.readObject();
+
                     if (message.getType() == ChatMessage.MessageType.LOGOUT) {
-                        System.out.println(sdf.format(new Date()) + " Cliente " + username + " desconectado.");
+                        // Cliente solicita desconexión
+                        System.out.println(sdf.format(new Date()) + " Cliente " + username + " (ID " + id + ") se ha desconectado.");
                         break;
                     } else if (message.getType() == ChatMessage.MessageType.MESSAGE) {
-                        System.out.println(sdf.format(new Date()) + " [" + username + "]: " + message.getMessage());
-                        broadcast(message); // Enviar mensaje a todos
+                        String text = message.getMessage();
+
+                        // Procesa comando "ban"
+                        if (text.startsWith("ban ")) {
+                            try {
+                                int blockedId = Integer.parseInt(text.split(" ")[1]);
+                                banUser(blockedId);
+
+                                // Notifica a todos los clientes del bloqueo
+                                String blockNotification = username + " ha bloqueado al usuario con ID " + blockedId;
+                                broadcast(new ChatMessage(id, ChatMessage.MessageType.MESSAGE, blockNotification));
+
+                            } catch (NumberFormatException e) {
+                                // Error en el formato del ID
+                                sendMessage(new ChatMessage(id, ChatMessage.MessageType.MESSAGE, "Error: Formato de comando inválido. Usa 'ban <id>'."));
+                            }
+                        }
+                        // Procesa comando "unban"
+                        else if (text.startsWith("unban ")) {
+                            try {
+                                int unblockedId = Integer.parseInt(text.split(" ")[1]);
+                                unbanUser(unblockedId);
+
+                                // Notifica a todos los clientes del desbloqueo
+                                String unblockNotification = username + " ha desbloqueado al usuario con ID " + unblockedId;
+                                broadcast(new ChatMessage(id, ChatMessage.MessageType.MESSAGE, unblockNotification));
+
+                            } catch (NumberFormatException e) {
+                                // Error en el formato del ID
+                                sendMessage(new ChatMessage(id, ChatMessage.MessageType.MESSAGE, "Error: Formato de comando inválido. Usa 'unban <id>'."));
+                            }
+                        }
+                        // Procesa mensaje normal
+                        else {
+                            System.out.println(sdf.format(new Date()) + " [" + username + "]: " + text);
+                            broadcast(message);
+                        }
                     }
                 }
             } catch (IOException | ClassNotFoundException e) {
-                System.err.println("Error en el cliente " + id + ": " + e.getMessage());
+                System.err.println("Error en la comunicación con el cliente " + username + " (ID " + id + "): " + e.getMessage());
             } finally {
-                remove(id); // Eliminar al cliente
+                // Desconexión del cliente
                 closeConnection();
+                remove(id); // Remueve el cliente del mapa del servidor
             }
         }
 
         /**
-         * Envía un mensaje al cliente.
+         * Envía un mensaje al cliente, verificando que no esté bloqueado.
          * 
          * @param message Mensaje a enviar.
          */
-        private void sendMessage(ChatMessage message) {
-            try {
-                output.writeObject(message);
-            } catch (IOException e) {
-                System.err.println("Error al enviar mensaje al cliente " + id + ": " + e.getMessage());
+        public void sendMessage(ChatMessage message) {
+            if (!blockedUsers.contains(message.getId())) { // Solo enviar si no está bloqueado
+                try {
+                    outputStream.writeObject(message);
+                } catch (IOException e) {
+                    System.err.println("Error al enviar mensaje al cliente " + id + ": " + e.getMessage());
+                }
             }
         }
 
+
         /**
-         * Cierra la conexión del cliente.
+         * Cierra la conexión con el cliente, liberando recursos.
          */
         private void closeConnection() {
-            safeClose(socket);
-            safeClose(input);
-            safeClose(output);
-            System.out.println(sdf.format(new Date()) + " Conexión cerrada para cliente " + id);
+        	try {
+        	    if (inputStream != null) inputStream.close();
+        	    if (outputStream != null) outputStream.close();
+        	    if (socket != null) socket.close();
+        	} catch (IOException e) {
+        	    System.err.println("Error cerrando recursos del cliente " + id + ": " + e.getMessage());
+        	}
+        }
+        
+        /**
+         * Bloquea los mensajes de un cliente específico.
+         * 
+         * @param userId ID del cliente a bloquear.
+         */
+        public void banUser(int userId) {
+            blockedUsers.add(userId);
+            System.out.println(username + " ha bloqueado al usuario con ID " + userId);
         }
 
         /**
-         * Método helper para cerrar recursos de forma segura.
+         * Desbloquea los mensajes de un cliente específico.
          * 
-         * @param resource Recurso a cerrar.
+         * @param userId ID del cliente a desbloquear.
          */
-        private void safeClose(Closeable resource) {
-            try {
-                if (resource != null) resource.close();
-            } catch (IOException e) {
-                System.err.println("Error al cerrar recurso: " + e.getMessage());
-            }
+        public void unbanUser(int userId) {
+            blockedUsers.remove(userId);
+            System.out.println(username + " ha desbloqueado al usuario con ID " + userId);
         }
-    }
 
+    }
 }

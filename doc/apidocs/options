@@ -1,6 +1,6 @@
 -encoding
 'UTF-8'
--protected
+-private
 -sourcepath
 'C:/Users/nicom/OneDrive/Escritorio/INFORMÁTICA/5o Curso/SISTEMAS DISTRIBUIDOS/Programas/workspace/Chat1.0/src/main/java'
 -author
@@ -9,7 +9,7 @@
 -charset
 'UTF-8'
 -d
-'C:/Users/nicom/OneDrive/Escritorio/INFORMÁTICA/5o Curso/SISTEMAS DISTRIBUIDOS/Programas/workspace/Chat1.0/doc/apidocs'
+'C:/Users/nicom/OneDrive/Escritorio/INFORMÁTICA/5o Curso/SISTEMAS DISTRIBUIDOS/Programas/workspace/Chat1.0/target/site/apidocs'
 -docencoding
 'UTF-8'
 -doctitle

@@ -9,6 +9,8 @@ import es.ubu.lsi.common.ChatMessage;
  * 
  * @author Alejandro Navas García
  * @author Nicolás Muñoz Miguel
+ * 
+ * @version 1.0
  */
 public interface ChatClient {
 

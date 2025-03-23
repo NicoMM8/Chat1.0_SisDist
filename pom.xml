@@ -38,8 +38,10 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <outputDirectory>${basedir}/doc</outputDirectory>
-                </configuration>
+                <outputDirectory>${basedir}/doc</outputDirectory>
+                <show>private</show> 
+            </configuration>
+
             </plugin>
         </plugins>
     </build>

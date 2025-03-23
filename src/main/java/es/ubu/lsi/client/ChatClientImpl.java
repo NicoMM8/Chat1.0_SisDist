@@ -16,17 +16,34 @@ import es.ubu.lsi.common.ChatMessage.MessageType;
  * 
  * @author Alejandro Navas García
  * @author Nicolás Muñoz Miguel
+ * 
+ * @version 1.0
  */
 public class ChatClientImpl implements ChatClient {
-    private final String server; // Dirección del servidor
-    private final String username; // Nombre del usuario
-    private int port = 1500; // Puerto para la conexión
-    private boolean carryOn = true; // Control de ejecución del cliente
-    private int id; // ID del cliente
 
-    private Socket socket; // Socket para la conexión
-    private ObjectOutputStream outputStream; // Flujo de salida
-    private ObjectInputStream inputStream; // Flujo de entrada
+    /** Dirección del servidor (IP o hostname). */
+    private final String server;
+
+    /** Nombre del usuario en el chat. */
+    private final String username;
+
+    /** Puerto del servidor para la conexión (por defecto 1500). */
+    private int port = 1500;
+
+    /** Estado del cliente (activo o desconectado). */
+    private boolean alive = true;
+
+    /** Identificador único del cliente. */
+    private int id;
+
+    /** Socket utilizado para la conexión al servidor. */
+    private Socket socket;
+
+    /** Flujo de salida hacia el servidor. */
+    private ObjectOutputStream outputStream;
+
+    /** Flujo de entrada desde el servidor. */
+    private ObjectInputStream inputStream;
 
     /**
      * Constructor que inicializa el cliente con los datos del servidor y del usuario.
@@ -58,7 +75,7 @@ public class ChatClientImpl implements ChatClient {
             outputStream = new ObjectOutputStream(socket.getOutputStream());
             inputStream = new ObjectInputStream(socket.getInputStream());
 
-            // Enviar el nickname al servidor como primer mensaje
+            // Envia el nickname al servidor como primer mensaje
             outputStream.writeObject(new ChatMessage(id, MessageType.MESSAGE, username));
 
             // Inicia el hilo que escucha los mensajes entrantes
@@ -81,9 +98,9 @@ public class ChatClientImpl implements ChatClient {
     @Override
     public void sendMessage(ChatMessage msg) {
         try {
-        	// Registramos el mensaje
-        	System.out.println(username + " patrocina el mensaje: " + msg.getMessage());
-        	outputStream.writeObject(msg); // Enviamos mensaje al servidor
+            // Log del mensaje enviado
+            System.out.println("Alejandro y Nico" + " patrocinan el mensaje: " + msg.getMessage());
+            outputStream.writeObject(msg); // Enviamos el mensaje al servidor
         } catch (Exception e) {
             System.err.println("Error al enviar el mensaje: " + e.getMessage());
         }
@@ -95,9 +112,9 @@ public class ChatClientImpl implements ChatClient {
      */
     @Override
     public void disconnect() {
-        carryOn = false;
+        alive = false;
         try {
-            // Enviar mensaje de logout antes de cerrar la conexión
+            // Envia mensaje de logout antes de cerrar la conexión
             sendMessage(new ChatMessage(id, MessageType.LOGOUT, "logout"));
             if (socket != null) socket.close();
             System.out.println("Desconectado del servidor.");
@@ -134,7 +151,7 @@ public class ChatClientImpl implements ChatClient {
      */
     private void listenForUserInput() {
         Scanner scanner = new Scanner(System.in);
-        while (carryOn) {
+        while (alive) {
             System.out.print("> ");
             String input = scanner.nextLine();
 
@@ -155,29 +172,41 @@ public class ChatClientImpl implements ChatClient {
      * de texto o apagado del servidor).
      */
     private class ChatClientListener implements Runnable {
+
+    	/**
+    	 * Constructor.
+    	 */
+    	private ChatClientListener() {
+    		
+    	}
+        /**
+         * Método que ejecuta el hilo de escucha.
+         * Procesa los mensajes recibidos del servidor y actúa según su tipo.
+         */
         @Override
         public void run() {
             try {
-                while (carryOn) {
+                while (alive) {
                     ChatMessage message = (ChatMessage) inputStream.readObject();
 
-                    // Registrar el mensaje con el formato requerido
-                    System.out.println(message.getId() + " patrocina el mensaje: " + message.getMessage());
+                    // Log del mensaje recibido
+                    System.out.println("Alejandro y Nico" + " patrocinan el mensaje: " + message.getMessage());
 
-                    // Procesar el mensaje según su tipo
+                    // Procesa el mensaje según su tipo
                     if (message.getType() == MessageType.MESSAGE) {
                         System.out.println("[" + message.getId() + "] " + message.getMessage());
                     } else if (message.getType() == MessageType.SHUTDOWN) {
                         System.out.println("El servidor está apagándose. Desconectando...");
-                        carryOn = false;
+                        alive = false;
                         break;
                     }
                 }
             } catch (Exception e) {
-                if (carryOn) {
+                if (alive) {
                     System.err.println("Error en ChatClientListener: " + e.getMessage());
                 }
             }
         }
     }
 }
+
